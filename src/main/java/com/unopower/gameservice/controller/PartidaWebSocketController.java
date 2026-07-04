@@ -34,6 +34,11 @@ public class PartidaWebSocketController {
         this.partidaService = partidaService;
     }
 
+    @MessageMapping("/partidas/{codigo}/sincronizar")
+    public void sincronizar(@DestinationVariable String codigo) {
+        partidaService.sincronizar(codigo);
+    }
+
     @MessageMapping("/partidas/{codigo}/jugar")
     public void jugar(@DestinationVariable String codigo, @Payload JugarCartaRequest request, Principal principal) {
         partidaService.jugarCarta(codigo, principal.getName(), request.carta(), request.colorElegido());

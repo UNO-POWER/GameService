@@ -55,6 +55,17 @@ public class PartidaService {
         notificarSiFinalizada(partida);
     }
 
+    /**
+     * El broker simple de STOMP no reenvia mensajes pasados a nuevos suscriptores: un
+     * cliente que conecta despues de que la partida ya inicio (o se reconecta) no veria
+     * nada hasta la siguiente jugada. Este mensaje fuerza un reenvio del estado actual.
+     */
+    public void sincronizar(String codigo) {
+        if (registry.existe(codigo)) {
+            publicarEstadoYManos(registry.obtener(codigo));
+        }
+    }
+
     public void robar(String codigo, String userId) {
         Partida partida = registry.obtener(codigo);
         partida.robarCartaPorTurno(userId);
