@@ -5,6 +5,9 @@ spring:
   application:
     name: game-service
 
+jwt:
+  secret: ${JWT_SECRET:change-this-to-a-long-random-secret-shared-by-gateway-and-user-service}
+
 management:
   endpoints:
     web:
