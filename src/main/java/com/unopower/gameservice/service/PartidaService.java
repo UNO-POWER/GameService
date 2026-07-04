@@ -25,12 +25,14 @@ public class PartidaService {
     private final PartidaRegistry registry;
     private final MazoFactory mazoFactory;
     private final SimpMessagingTemplate messagingTemplate;
+    private final UserServiceClient userServiceClient;
 
     public PartidaService(PartidaRegistry registry, MazoFactory mazoFactory,
-                           SimpMessagingTemplate messagingTemplate) {
+                           SimpMessagingTemplate messagingTemplate, UserServiceClient userServiceClient) {
         this.registry = registry;
         this.mazoFactory = mazoFactory;
         this.messagingTemplate = messagingTemplate;
+        this.userServiceClient = userServiceClient;
     }
 
     public void iniciarPartida(String codigo, List<JugadorInicialDto> jugadoresIniciales) {
@@ -50,6 +52,7 @@ public class PartidaService {
             partida.generarPowerUpSiCorresponde();
         }
         publicarEstadoYManos(partida);
+        notificarSiFinalizada(partida);
     }
 
     public void robar(String codigo, String userId) {
@@ -92,6 +95,17 @@ public class PartidaService {
             ManoDto mano = new ManoDto(partida.getCodigo(), List.copyOf(jugador.getMano()),
                     List.copyOf(jugador.getPowerUpsInventario()));
             messagingTemplate.convertAndSendToUser(jugador.getUserId(), "/queue/mano", mano);
+        }
+    }
+
+    private void notificarSiFinalizada(Partida partida) {
+        if (partida.getEstado() != EstadoPartida.FINALIZADA) {
+            return;
+        }
+        log.info("partida finalizada codigo={} ganador={}", partida.getCodigo(), partida.getGanadorUserId());
+        for (Jugador jugador : partida.getJugadores()) {
+            boolean gano = jugador.getUserId().equals(partida.getGanadorUserId());
+            userServiceClient.notificarResultado(jugador.getUserId(), gano);
         }
     }
 }

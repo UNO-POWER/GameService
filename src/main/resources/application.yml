@@ -5,6 +5,10 @@ spring:
   application:
     name: game-service
 
+services:
+  user-service:
+    url: ${USER_SERVICE_URL:http://localhost:8081}
+
 jwt:
   secret: ${JWT_SECRET:change-this-to-a-long-random-secret-shared-by-gateway-and-user-service}
 
