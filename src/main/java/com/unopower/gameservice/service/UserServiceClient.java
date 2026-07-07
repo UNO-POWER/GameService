@@ -19,8 +19,12 @@ public class UserServiceClient {
 
     private final RestClient restClient;
 
-    public UserServiceClient(@Value("${services.user-service.url}") String userServiceUrl) {
-        this.restClient = RestClient.builder().baseUrl(userServiceUrl).build();
+    public UserServiceClient(@Value("${services.user-service.url}") String userServiceUrl,
+                              @Value("${internal.api-key}") String internalApiKey) {
+        this.restClient = RestClient.builder()
+                .baseUrl(userServiceUrl)
+                .defaultHeader("X-Internal-Key", internalApiKey)
+                .build();
     }
 
     public void notificarResultado(String userId, boolean gano) {
