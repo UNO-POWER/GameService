@@ -24,11 +24,20 @@ public class ChatController {
         this.messagingTemplate = messagingTemplate;
     }
 
+    static final int LONGITUD_MAXIMA = 300;
+
     @MessageMapping("/salas/{codigo}/chat")
     public void enviarMensaje(@DestinationVariable String codigo, @Payload MensajeChatRequest request,
                                UsuarioPrincipal principal) {
+        if (request.texto() == null || request.texto().isBlank()) {
+            return; // mensajes vacios se descartan en silencio
+        }
+        String texto = request.texto().strip();
+        if (texto.length() > LONGITUD_MAXIMA) {
+            texto = texto.substring(0, LONGITUD_MAXIMA);
+        }
         MensajeChatDto mensaje = new MensajeChatDto(principal.getName(), principal.getUsername(),
-                request.texto(), Instant.now());
+                texto, Instant.now());
         messagingTemplate.convertAndSend("/topic/sala/" + codigo + "/chat", mensaje);
     }
 }

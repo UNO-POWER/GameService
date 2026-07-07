@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Random;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Motor de una partida de UNO (HU-03) + power-ups (HU-04). Aggregate root: cada instancia
@@ -36,6 +37,7 @@ public class Partida {
     private String ganadorUserId;
     private PowerUpActivo powerUpActivo;
     private int turnosDesdeUltimoPowerUp = 0;
+    private final AtomicBoolean finNotificado = new AtomicBoolean(false);
 
     public Partida(String codigo, List<Jugador> jugadores, Deque<Carta> mazoBarajado) {
         if (jugadores.size() < 2) {
@@ -81,11 +83,16 @@ public class Partida {
             throw new JugadaInvalidaException("esa carta no es valida sobre el descarte actual");
         }
 
+        if (cartaJugada.esComodin()) {
+            // Gherkin HU-03: "juega un +4 y elige el color" - el color es obligatorio.
+            if (colorElegido == null || colorElegido == Color.COMODIN) {
+                throw new JugadaInvalidaException("debes elegir un color al jugar un comodin");
+            }
+        }
+
         jugador.getMano().remove(cartaJugada);
         descarte.addLast(cartaJugada);
-        colorActual = cartaJugada.esComodin()
-                ? (colorElegido != null ? colorElegido : colorAleatorio())
-                : cartaJugada.color();
+        colorActual = cartaJugada.esComodin() ? colorElegido : cartaJugada.color();
 
         if (jugador.getMano().size() != 1) {
             jugador.setDijoUno(false);
@@ -313,5 +320,14 @@ public class Partida {
 
     public PowerUpActivo getPowerUpActivo() {
         return powerUpActivo;
+    }
+
+    /**
+     * El fin de partida puede dispararse por dos caminos concurrentes (ultima carta jugada
+     * o abandono por timeout de reconexion); este CAS garantiza que las notificaciones de
+     * resultado (stats, KPI de partidas completadas) se emitan exactamente una vez.
+     */
+    public boolean marcarFinNotificado() {
+        return finNotificado.compareAndSet(false, true);
     }
 }
