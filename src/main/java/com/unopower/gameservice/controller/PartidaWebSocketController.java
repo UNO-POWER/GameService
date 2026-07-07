@@ -72,4 +72,16 @@ public class PartidaWebSocketController {
         log.warn("jugada rechazada: {}", ex.getMessage());
         return new ErrorDto(ex.getMessage());
     }
+
+    /**
+     * KPI-4 (HU-11): los errores inesperados (no jugadas invalidas, que son parte del flujo
+     * anti-trampa) cuentan como error critico de partida y se responden con mensaje generico.
+     */
+    @MessageExceptionHandler(Exception.class)
+    @SendToUser("/queue/errores")
+    public ErrorDto manejarErrorInesperado(Exception ex) {
+        log.error("error inesperado procesando accion de partida", ex);
+        partidaService.registrarErrorCritico();
+        return new ErrorDto("Ocurrio un error inesperado. Intenta de nuevo.");
+    }
 }
