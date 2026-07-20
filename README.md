@@ -7,7 +7,6 @@
 [![Java](https://img.shields.io/badge/Java-21-orange)]()
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.5-brightgreen)]()
 [![Tests](https://img.shields.io/badge/tests-44%20passing-success)]()
-[![License](https://img.shields.io/badge/license-MIT-blue)]()
 
 ---
 
@@ -35,20 +34,19 @@
 20. [Solución de problemas](#20-solución-de-problemas)
 21. [Roadmap](#21-roadmap)
 22. [Contribución](#22-contribución)
-23. [Licencia](#23-licencia)
-24. [Autor](#24-autor)
+23. [Autor](#23-autor)
 
 ---
 
 ## 1. Descripción
 
 **Game Service** es el único servicio que sabe jugar UNO. Recibe el roster inicial de
-[Lobby Service](../LobbyService), reparte cartas, valida cada jugada, aplica los efectos de las
+[Lobby Service](https://github.com/UNO-POWER/LobbyService), reparte cartas, valida cada jugada, aplica los efectos de las
 cartas especiales y de los 5 power-ups, gestiona reconexiones y publica el estado de la partida
 en tiempo real por WebSocket. También aloja el chat de sala.
 
 Es el **único** servicio del sistema con el que el cliente habla por WebSocket — y lo hace
-**directamente**, sin pasar por el [API Gateway](../APIGATEWAY), para minimizar la latencia
+**directamente**, sin pasar por el [API Gateway](https://github.com/UNO-POWER/APIGATEWAY), para minimizar la latencia
 percibida en cada jugada (EC-01 del Inception doc).
 
 ### Historias de usuario que implementa
@@ -199,8 +197,8 @@ docker compose up -d --build game-service
 ```
 
 > **Nota de despliegue:** en producción, este servicio debe ser alcanzable **directamente** para
-> el WebSocket (no solo vía el Gateway) — ver el proxy `nginx` en [`deploy/nginx/edge.conf`](../deploy/nginx/edge.conf)
-> que enruta `/ws-game` con las cabeceras `Upgrade`/`Connection` necesarias.
+> el WebSocket (no solo vía el Gateway). Detrás de un reverse proxy (p. ej. `nginx`), la ruta
+> `/ws-game` necesita las cabeceras `Upgrade`/`Connection` para que el handshake WebSocket funcione.
 
 ---
 
@@ -415,7 +413,7 @@ efecto. También destranca partidas donde el jugador en turno quedó abandonado 
 
 Nótese que `JugadorPublicoDto` **nunca** expone las cartas de otro jugador, solo su cantidad —
 esa es la base de la detección de "robo" en el frontend (comparar `cantidadCartas` entre dos
-snapshots consecutivos, ver [`FRONT/README.md`](../FRONT/README.md#13-animación-de-robo-de-cartas)).
+snapshots consecutivos, ver [`FRONT/README.md`](https://github.com/UNO-POWER/FRONT)).
 
 ---
 
@@ -527,7 +525,7 @@ flujo esperado (anti-trampa), no errores del sistema. Solo las excepciones inesp
 | `uno.partidas.errores` (**KPI-4**) | Counter | Errores **inesperados** (no incluye jugadas inválidas, que son parte del flujo normal de validación) |
 
 Visualizadas en el dashboard `kpis-negocio.json` de Grafana — ver
-[`ObservabilityStack/README.md`](../ObservabilityStack/README.md).
+[`ObservabilityStack/README.md`](https://github.com/UNO-POWER/ObservabilityStack).
 
 ---
 
@@ -552,13 +550,11 @@ mvn test jacoco:report   # target/site/jacoco/index.html (95% de cobertura en mo
 
 ## 19. Despliegue
 
-- **Docker**: `Dockerfile` multi-stage (Maven → JRE Alpine).
-- **Docker Compose**: servicio `game-service` en [`docker-compose.yml`](../docker-compose.yml) y
-  en [`deploy/docker-compose.prod.yml`](../deploy/docker-compose.prod.yml).
-- **AWS**: el `nginx` de borde (`deploy/nginx/edge.conf`) enruta tanto `/api/**` (hacia el
-  Gateway) como `/ws-game` (directo a este servicio, con `proxy_set_header Upgrade $http_upgrade`)
-  bajo el mismo dominio HTTPS — necesario porque CloudFront (HTTPS) bloquearía un WebSocket en
-  texto plano por contenido mixto. Ver [`deploy/DEPLOY.md`](../deploy/DEPLOY.md).
+- **Docker**: `Dockerfile` multi-stage (Maven → JRE Alpine) incluido en este repositorio.
+- **Producción / AWS**: este servicio corre como contenedor detrás de un reverse proxy TLS que
+  enruta `/ws-game` directo hacia él (con `proxy_set_header Upgrade $http_upgrade`) bajo el mismo
+  dominio HTTPS que el resto del sistema — necesario porque un frontend servido por HTTPS
+  bloquearía un WebSocket en texto plano por contenido mixto.
 
 ---
 
@@ -594,15 +590,7 @@ mvn test jacoco:report   # target/site/jacoco/index.html (95% de cobertura en mo
 
 ---
 
-## 23. Licencia
-
-MIT — ver [`LICENSE`](../LICENSE) en el repositorio raíz.
-
----
-
-## 24. Autor
+## 23. Autor
 
 **DUCU** — Desarrollador Full-Stack (individual), proyecto de la asignatura ARSW.
 Organización GitHub: [UNO-POWER](https://github.com/UNO-POWER).
-
-Repositorio raíz del sistema: **[UNO Power-Ups Arena](../README.md)**.
