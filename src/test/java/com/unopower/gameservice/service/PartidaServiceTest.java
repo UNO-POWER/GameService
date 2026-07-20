@@ -34,7 +34,10 @@ class PartidaServiceTest {
         messaging = Mockito.mock(SimpMessagingTemplate.class);
         userServiceClient = Mockito.mock(UserServiceClient.class);
         meterRegistry = new SimpleMeterRegistry();
-        service = new PartidaService(registry, new MazoFactory(), messaging, userServiceClient, meterRegistry);
+        // timeout largo: el scheduler real nunca dispara durante el test; el timeout se
+        // ejercita llamando robarPorTimeout directamente
+        service = new PartidaService(registry, new MazoFactory(), messaging, userServiceClient,
+                new TurnoTimerService(3600), meterRegistry);
     }
 
     private void iniciarPartidaDeDos() {
@@ -100,6 +103,47 @@ class PartidaServiceTest {
         service.registrarErrorCritico();
         service.registrarErrorCritico();
         assertEquals(2.0, meterRegistry.get("uno.partidas.errores").counter().count());
+    }
+
+    @Test
+    @DisplayName("timer de turno: al iniciar la partida hay deadline de turno publicable")
+    void iniciarPartidaFijaDeadlineDeTurno() {
+        iniciarPartidaDeDos();
+        assertNotNull(registry.obtener(CODIGO).getTurnoVenceEn());
+    }
+
+    @Test
+    @DisplayName("timer de turno: timeout vigente roba una carta al jugador en turno y avanza")
+    void timeoutRobaYAvanzaTurno() {
+        iniciarPartidaDeDos();
+        Partida partida = registry.obtener(CODIGO);
+        String enTurno = partida.getTurnoActualUserId();
+        int secuencia = partida.getTurnoSecuencia();
+
+        service.robarPorTimeout(CODIGO, enTurno, secuencia);
+
+        var jugador = partida.getJugadores().stream()
+                .filter(j -> j.getUserId().equals(enTurno)).findFirst().orElseThrow();
+        assertEquals(8, jugador.getMano().size());
+        assertNotEquals(enTurno, partida.getTurnoActualUserId());
+    }
+
+    @Test
+    @DisplayName("timer de turno: un timeout tardio de un turno ya avanzado es un no-op")
+    void timeoutDeSecuenciaViejaEsNoOp() {
+        iniciarPartidaDeDos();
+        Partida partida = registry.obtener(CODIGO);
+        String enTurno = partida.getTurnoActualUserId();
+        int secuenciaVieja = partida.getTurnoSecuencia();
+
+        service.robarPorTimeout(CODIGO, enTurno, secuenciaVieja);      // avanza de verdad
+        String nuevoEnTurno = partida.getTurnoActualUserId();
+        service.robarPorTimeout(CODIGO, enTurno, secuenciaVieja);      // tardio: debe ignorarse
+
+        assertEquals(nuevoEnTurno, partida.getTurnoActualUserId());
+        var jugadorViejo = partida.getJugadores().stream()
+                .filter(j -> j.getUserId().equals(enTurno)).findFirst().orElseThrow();
+        assertEquals(8, jugadorViejo.getMano().size()); // solo robo una vez
     }
 
     @Test

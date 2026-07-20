@@ -30,6 +30,7 @@ public class PartidaService {
     private final MazoFactory mazoFactory;
     private final SimpMessagingTemplate messagingTemplate;
     private final UserServiceClient userServiceClient;
+    private final TurnoTimerService turnoTimerService;
 
     // KPIs de negocio (HU-11): valores actuales visibles en /actuator/prometheus y Grafana.
     private final Counter partidasCompletadas;   // KPI-1: partidas completadas por dia
@@ -38,11 +39,12 @@ public class PartidaService {
 
     public PartidaService(PartidaRegistry registry, MazoFactory mazoFactory,
                            SimpMessagingTemplate messagingTemplate, UserServiceClient userServiceClient,
-                           MeterRegistry meterRegistry) {
+                           TurnoTimerService turnoTimerService, MeterRegistry meterRegistry) {
         this.registry = registry;
         this.mazoFactory = mazoFactory;
         this.messagingTemplate = messagingTemplate;
         this.userServiceClient = userServiceClient;
+        this.turnoTimerService = turnoTimerService;
         this.partidasCompletadas = Counter.builder("uno.partidas.completadas")
                 .description("KPI-1: partidas de UNO completadas (ganador o abandono masivo)")
                 .register(meterRegistry);
@@ -140,7 +142,35 @@ public class PartidaService {
         erroresCriticos.increment();
     }
 
+    /**
+     * Timeout de turno vencido: roba una carta en nombre del jugador y pasa el turno (misma
+     * regla que el boton "Robar" — no se juega automaticamente por el, ver TurnoTimerService).
+     * La secuencia descarta timeouts tardios de un turno que ya avanzo.
+     */
+    public void robarPorTimeout(String codigo, String userId, int secuencia) {
+        if (!registry.existe(codigo)) {
+            return;
+        }
+        Partida partida = registry.obtener(codigo);
+        if (partida.getEstado() != EstadoPartida.EN_CURSO || partida.getTurnoSecuencia() != secuencia) {
+            return;
+        }
+        try {
+            partida.robarCartaPorTurno(userId);
+            log.info("timeout de turno: robo automatico codigo={} userId={}", codigo, userId);
+            publicarEstadoYManos(partida);
+        } catch (JugadaInvalidaException ex) {
+            // el jugador alcanzo a actuar justo antes de expirar: no hay nada que hacer
+        }
+    }
+
     private void publicarEstadoYManos(Partida partida) {
+        // El timer fija turnoVenceEn ANTES de construir el DTO (el countdown viaja en el estado).
+        if (partida.getEstado() == EstadoPartida.EN_CURSO) {
+            turnoTimerService.asegurar(partida, this::robarPorTimeout);
+        } else {
+            turnoTimerService.cancelar(partida.getCodigo());
+        }
         EstadoPartidaDto estado = EstadoPartidaDto.from(partida);
         messagingTemplate.convertAndSend("/topic/sala/" + partida.getCodigo() + "/juego", estado);
 

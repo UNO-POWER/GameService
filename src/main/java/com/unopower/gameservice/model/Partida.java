@@ -39,6 +39,12 @@ public class Partida {
     private int turnosDesdeUltimoPowerUp = 0;
     private final AtomicBoolean finNotificado = new AtomicBoolean(false);
 
+    // Timer de turno: la secuencia crece en cada avance (distingue "turno nuevo" incluso si
+    // vuelve a tocarle al mismo jugador, p.ej. reversa entre 2); volatile porque el hilo del
+    // scheduler la lee sin tomar el monitor de la partida.
+    private volatile int turnoSecuencia = 0;
+    private volatile java.time.Instant turnoVenceEn;
+
     public Partida(String codigo, List<Jugador> jugadores, Deque<Carta> mazoBarajado) {
         if (jugadores.size() < 2) {
             throw new IllegalArgumentException("una partida necesita al menos 2 jugadores");
@@ -237,6 +243,7 @@ public class Partida {
     }
 
     private void avanzarTurno(int pasos) {
+        turnoSecuencia++;
         for (int i = 0; i < pasos; i++) {
             do {
                 turnoIndex = Math.floorMod(turnoIndex + direccion, jugadores.size());
@@ -320,6 +327,19 @@ public class Partida {
 
     public PowerUpActivo getPowerUpActivo() {
         return powerUpActivo;
+    }
+
+    public int getTurnoSecuencia() {
+        return turnoSecuencia;
+    }
+
+    public java.time.Instant getTurnoVenceEn() {
+        return turnoVenceEn;
+    }
+
+    /** Seteado por TurnoTimerService al (re)programar el timeout del turno vigente. */
+    public void setTurnoVenceEn(java.time.Instant turnoVenceEn) {
+        this.turnoVenceEn = turnoVenceEn;
     }
 
     /**

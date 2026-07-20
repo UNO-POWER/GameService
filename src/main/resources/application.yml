@@ -21,6 +21,8 @@ cors:
 game:
   reconexion:
     timeout-segundos: ${RECONEXION_TIMEOUT_SEGUNDOS:60}
+  turno:
+    timeout-segundos: ${TURNO_TIMEOUT_SEGUNDOS:20}
 
 management:
   endpoints:
