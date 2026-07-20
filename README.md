@@ -3,9 +3,10 @@
 > Motor de partida de UNO en tiempo real + power-ups + chat, todo sobre un único WebSocket —
 > el corazón del sistema de **UNO Power-Ups Arena**.
 
+[![CI](https://github.com/UNO-POWER/GameService/actions/workflows/ci.yml/badge.svg)](https://github.com/UNO-POWER/GameService/actions/workflows/ci.yml)
 [![Java](https://img.shields.io/badge/Java-21-orange)]()
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.5-brightgreen)]()
-[![Tests](https://img.shields.io/badge/tests-41%20passing-success)]()
+[![Tests](https://img.shields.io/badge/tests-44%20passing-success)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 
 ---
@@ -56,7 +57,7 @@ percibida en cada jugada (EC-01 del Inception doc).
 |---|---|
 | **HU-03** | Jugar una partida completa de UNO (reglas estándar: saltar, reversa, +2, comodín, +4) |
 | **HU-04** | Power-ups aleatorios capturables (robo forzado, espía, salto selectivo, duplicador, escudo) |
-| **HU-05** | Chat en tiempo real por sala |
+| **HU-05** | Chat en tiempo real por sala + **voz** (señalización WebRTC, audio P2P entre navegadores) |
 | **HU-08** | Reconexión: un jugador que pierde la conexión tiene una ventana de tiempo antes de ser marcado como abandonado |
 | **HU-11** | KPIs de negocio expuestos vía Micrometer/Prometheus |
 
@@ -162,6 +163,7 @@ mvn test
 | `USER_SERVICE_URL` | ✅ | `http://localhost:8081` | Para notificar resultado (`partidasJugadas`/`partidasGanadas`/racha) |
 | `CORS_ALLOWED_ORIGINS` | ✅ | `http://localhost:5173` | Orígenes permitidos para el handshake WebSocket (lista separada por comas) |
 | `RECONEXION_TIMEOUT_SEGUNDOS` | ❌ | `60` | Segundos que se espera tras una desconexión antes de marcar abandono |
+| `TURNO_TIMEOUT_SEGUNDOS` | ❌ | `20` | Segundos que tiene cada jugador para actuar; al vencerse, roba 1 carta automáticamente y pasa el turno |
 | `SERVER_PORT` | ❌ | `8083` | Puerto HTTP/WS |
 
 ---
@@ -241,7 +243,7 @@ GameService/
 ├── src/main/resources/
 │   ├── application.yml
 │   └── logback-spring.xml
-├── src/test/java/…/ (5 archivos, 41 tests)
+├── src/test/java/…/ (5 archivos, 44 tests)
 ├── Dockerfile
 └── pom.xml
 ```
@@ -332,6 +334,8 @@ es inválido/expirado, el `CONNECT` se rechaza (ver [§15](#15-seguridad)).
 | `/user/queue/mano` | Después de cada cambio de estado, a **cada** jugador individualmente | `ManoDto` (tu mano privada + tu inventario de power-ups) |
 | `/user/queue/espia` | Solo a quien usó el power-up Espía | `EspiaResultadoDto` (la mano del objetivo) |
 | `/user/queue/errores` | Jugada inválida o error inesperado | `ErrorDto { mensaje }` |
+| `/topic/sala/{codigo}/voice` | Alguien entra/sale del canal de voz | `AnuncioVozDto { userId, username, tipo: "presente"\|"salida" }` |
+| `/user/queue/voice` | Señal WebRTC dirigida a ti (offer/answer/ice/presente) | `SenalVozDto { deUserId, deUsername, tipo, datos }` |
 
 ### Destinos de publicación (cliente → servidor)
 
@@ -346,6 +350,18 @@ Todos bajo el prefijo `/app` (configurado en `WebSocketConfig`).
 | `/app/partidas/{codigo}/decir-uno` | *(sin body)* | Marca `dijoUno = true` (se resetea automáticamente si vuelves a tener ≠1 carta) |
 | `/app/partidas/{codigo}/powerups/capturar` | `{ "powerUpId": "..." }` | Intenta capturar el power-up visible en el tablero (primero en llegar gana) |
 | `/app/partidas/{codigo}/powerups/usar` | `{ "tipo": "ROBO_FORZADO", "objetivoUserId": "..." }` | Usa un power-up ya capturado de tu inventario |
+| `/app/salas/{codigo}/voice/anuncio` | `{ "tipo": "presente" \| "salida" }` | Anuncia entrada/salida del canal de voz (se difunde a la sala) |
+| `/app/salas/{codigo}/voice/senal` | `{ "objetivoUserId": "...", "tipo": "offer"\|"answer"\|"ice"\|"presente", "datos": "<sdp/ice serializado>" }` | Retransmite una señal WebRTC **solo** al objetivo (ambos deben ser jugadores de la partida) |
+
+### Voz en tiempo real (WebRTC P2P)
+
+El audio de voz **nunca pasa por el servidor**: fluye directo entre navegadores (P2P mesh,
+cifrado DTLS-SRTP). `VoiceController` solo retransmite la señalización — mensajitos de texto
+(SDP offers/answers y candidatos ICE, tope de 20 KB) — validando que emisor y objetivo sean
+jugadores de la partida, con la identidad tomada siempre del `Principal` del JWT. El descubrimiento
+de IPs para atravesar NAT usa un STUN público; sin servidor TURN, un jugador tras NAT
+simétrico/CGNAT puede no lograr conexión de audio (limitación documentada — el juego sigue normal).
+La malla completa escala bien con 2–6 hablando a la vez; un SFU queda como evolución v2.
 
 ### Ejemplo de sesión completa (cliente STOMP.js)
 
@@ -384,9 +400,18 @@ client.publish({
   "direccion": 1,
   "estado": "EN_CURSO",
   "ganadorUserId": null,
-  "powerUpActivo": { "id": "8f2c...", "tipo": "ESPIA" }
+  "powerUpActivo": { "id": "8f2c...", "tipo": "ESPIA" },
+  "turnoVenceEn": "2026-07-18T07:09:07.222Z"
 }
 ```
+
+`turnoVenceEn` es el vencimiento del **timer de turno** (`TURNO_TIMEOUT_SEGUNDOS`, 20s por
+defecto): si el jugador en turno no actúa antes de ese instante, el servidor roba 1 carta en su
+nombre y pasa el turno — misma regla que el botón "Robar", deliberadamente: penaliza la
+inactividad sin tomar decisiones estratégicas por el jugador. `TurnoTimerService` usa la
+**secuencia de turno** de la partida para dos garantías: un `sincronizar` no reinicia la cuenta
+del turno vigente, y un timeout que dispara tarde (el jugador actuó justo antes) se descarta sin
+efecto. También destranca partidas donde el jugador en turno quedó abandonado (HU-08).
 
 Nótese que `JugadorPublicoDto` **nunca** expone las cartas de otro jugador, solo su cantidad —
 esa es la base de la detección de "robo" en el frontend (comparar `cantidadCartas` entre dos
@@ -513,13 +538,13 @@ mvn test
 mvn test jacoco:report   # target/site/jacoco/index.html (95% de cobertura en model/)
 ```
 
-**41 tests** (JUnit 5 + Mockito) en 5 archivos:
+**44 tests** (JUnit 5 + Mockito) en 5 archivos:
 
 | Archivo | Cubre |
 |---|---|
 | `PartidaTest` | Reglas completas del motor: jugadas válidas/inválidas, efectos de saltar/reversa/+2/+4, comodín exige color, fin de partida al vaciar mano, robo cuando el mazo se agota (reciclaje del descarte), abandono con recuento de activos |
 | `MazoFactoryTest` | El mazo generado tiene exactamente 108 cartas con la distribución estándar de UNO |
-| `PartidaServiceTest` | Orquestación: broadcast de estado y mano, métricas incrementadas correctamente, notificación a User Service exactamente una vez |
+| `PartidaServiceTest` | Orquestación: broadcast de estado y mano, métricas, notificación a User Service exactamente una vez, timer de turno (deadline publicado, robo automático al vencer, timeout tardío descartado por secuencia) |
 | `StompAuthChannelInterceptorTest` | Rechaza `CONNECT` sin token, con token inválido/expirado; acepta y setea el `Principal` con token válido |
 | `ReconexionServiceTest` | Cancela el timeout si reconecta a tiempo; marca abandonado si expira; termina la partida si quedan <2 activos |
 
